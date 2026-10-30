@@ -1,66 +1,78 @@
 
-(() => {
-  const oldPrefix = "/pxt-ev3/ghtutorial/";
-  const newPrefix =
-    "https://cdn.makecode.com/api/ghtutorial/";
+/**
+ * External GitHub tutorial compatibility layer.
+ *
+ * PXT's static build requests GitHub tutorials from the
+ * locally hosted /ghtutorial/ path, which GitHub Pages
+ * cannot serve.
+ *
+ * Redirect only those requests to Microsoft's tutorial API.
+ *
+ * Temporary solution until BrickCode provides its own
+ * browser-side tutorial loader.
+ */
+(function () {
+    "use strict";
 
-  function redirect(url) {
-    const parsed = new URL(url, location.href);
+    const tutorialApi =
+        "https://cdn.makecode.com/api/ghtutorial/";
 
-    if (
-      parsed.origin !== location.origin ||
-      !parsed.pathname.startsWith(oldPrefix)
+    // Works at / for brickcode.org and /pxt-ev3/ for forks.
+    const localTutorialPath =
+        new URL("ghtutorial/", window.location.href).pathname;
+
+    const originalOpen = XMLHttpRequest.prototype.open;
+
+    XMLHttpRequest.prototype.open = function (
+        method, url, ...args
     ) {
-      return null;
-    }
+        if (String(method).toUpperCase() === "GET") {
+            let requestUrl;
 
-    return newPrefix +
-      parsed.pathname.slice(oldPrefix.length) +
-      parsed.search;
-  }
+            try {
+                requestUrl = new URL(String(url), location.href);
+            } catch {
+                // Preserve normal XHR behavior for invalid URLs.
+            }
 
-  // Handle requests made using fetch().
-  const originalFetch = window.fetch;
+            if (
+                requestUrl &&
+                requestUrl.origin === location.origin &&
+                requestUrl.pathname.startsWith(localTutorialPath)
+            ) {
+                const tutorialPath =
+                    requestUrl.pathname.slice(
+                        localTutorialPath.length
+                    );
 
-  window.fetch = function(input, init) {
-    const url = typeof input === "string"
-      ? input
-      : input?.url;
+                if (tutorialPath) {
+                    const redirectUrl =
+                        tutorialApi +
+                        tutorialPath +
+                        requestUrl.search;
 
-    const replacement = url && redirect(url);
+                    console.info(
+                        "External tutorial redirected:",
+                        redirectUrl
+                    );
 
-    if (replacement) {
-      console.log("Tutorial fetch redirected:", replacement);
+                    return originalOpen.call(
+                        this,
+                        method,
+                        redirectUrl,
+                        ...args
+                    );
+                }
+            }
+        }
 
-      const updatedInput = input instanceof Request
-        ? new Request(replacement, input)
-        : replacement;
+        return originalOpen.call(
+            this,
+            method,
+            url,
+            ...args
+        );
+    };
 
-      return originalFetch.call(this, updatedInput, init);
-    }
-
-    return originalFetch.call(this, input, init);
-  };
-
-  // Also handle requests made using XMLHttpRequest.
-  const originalOpen = XMLHttpRequest.prototype.open;
-
-  XMLHttpRequest.prototype.open = function(
-    method, url, ...rest
-  ) {
-    const replacement =
-      String(method).toUpperCase() === "GET"
-        ? redirect(url)
-        : null;
-
-    if (replacement) {
-      console.log("Tutorial XHR redirected:", replacement);
-    }
-
-    return originalOpen.call(
-      this, method, replacement || url, ...rest
-    );
-  };
-
-  console.log("Tutorial redirect installed");
+    console.info("External tutorial routing enabled");
 })();
